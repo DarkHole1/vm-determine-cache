@@ -65,30 +65,108 @@ uint64_t microbench(int H, int S)
     return delta.count();
 }
 
-void detect(int Z, int N, int M)
+const double JUMP_THRESHOLD = 1.3;
+
+struct JumpPoint
 {
-    cout << "H,S,t" << endl;
-    int H = 16;
-    while (H * N < Z)
+    int H;
+    int S;
+};
+
+std::vector<JumpPoint> jump_history;
+
+bool isJump(uint64_t prev_time, uint64_t curr_time)
+{
+    if (prev_time == 0)
+        return false;
+    return static_cast<double>(curr_time) / static_cast<double>(prev_time) >= JUMP_THRESHOLD;
+}
+
+int getLastJumpSpotForStride(int H)
+{
+    for (auto it = jump_history.rbegin(); it != jump_history.rend(); ++it)
     {
-        int S = 1;
-        while (S < N)
+        if (it->H == H)
+            return it->S;
+    }
+    return -1;
+}
+
+bool isMovement(int H)
+{
+    if (H <= 16)
+        return true;
+
+    int prev_H = H / 2;
+    int curr_jump = getLastJumpSpotForStride(H);
+    int prev_jump = getLastJumpSpotForStride(prev_H);
+
+    if (curr_jump == -1 || prev_jump == -1)
+        return true;
+
+    double expected = prev_jump / 2.0;
+    return std::abs(curr_jump - expected) <= 2;
+}
+
+void detect_capacity_associativity(int Z, int N, int M)
+{
+    jump_history.clear();
+    int H = 16;
+
+    int stable_H = -1;
+    int associativity = -1;
+
+    while (H <= M && H * N <= Z)
+    {
+        uint64_t prev_time = 0;
+        int jump_spot = -1;
+
+        for (int S = 1; S <= N; ++S)
         {
-            uint64_t current_time = microbench(H, S);
+            uint64_t curr_time = microbench(H, S);
 
-            // TODO
+            if (isJump(prev_time, curr_time))
+            {
+                jump_spot = S;
+                jump_history.push_back({H, S});
+                break;
+            }
+            prev_time = curr_time;
+        }
 
-            S += 1;
+        if (jump_spot == -1)
+        {
+            H *= 2;
+            continue;
+        }
+
+        if (!isMovement(H))
+        {
+            stable_H = H;
+            associativity = jump_spot;
+            break;
         }
 
         H *= 2;
     }
 
-    // TODO
+    if (associativity == -1)
+    {
+        std::cerr << "Failed to detect L1 cache associativity.\n";
+        return;
+    }
+
+    int capacity_bytes = associativity * stable_H;
+
+    std::cout << "=== L1 Data Cache Detection ===\n";
+    std::cout << "Associativity: " << associativity << "\n";
+    std::cout << "Stride at stability: " << stable_H << " bytes\n";
+    std::cout << "Estimated capacity: " << capacity_bytes << " bytes ("
+              << (capacity_bytes / 1024) << " KB)\n";
 }
 
 int main()
 {
-    detect(10 * 1024 * 1024, 128, 1024);
+    detect_capacity_associativity(10 * 1024 * 1024, 128, 1024 * 1024 * 1024);
     return 0;
 }
