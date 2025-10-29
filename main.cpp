@@ -4,7 +4,7 @@
 #include <algorithm>
 using namespace std;
 
-#define ITERATIONS 2000000
+#define ITERATIONS 10000000
 
 uint64_t microbench(int H, int S)
 {
@@ -142,8 +142,8 @@ void detect_capacity_associativity(int Z, int N, int M)
 
         if (!isMovement(H))
         {
-            stable_H = H;
-            associativity = jump_spot;
+            stable_H = H / 2;
+            associativity = jump_spot - 1;
             break;
         }
 
