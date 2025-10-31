@@ -16,7 +16,7 @@ uint64_t microbench(int H, int S)
     }
 
     // Initialization
-    char *raw = static_cast<char *>(aligned_alloc(H, H * S));
+    char *raw = static_cast<char *>(aligned_alloc(4096, H * S));
     if (raw == nullptr)
     {
         cerr << "Failed to allocate memory for H = " << H << ", S = " << S << endl;
@@ -108,7 +108,60 @@ bool isMovement(int H)
     return std::abs(curr_jump - expected) <= 2;
 }
 
-void detect_capacity_associativity(int Z, int N, int M)
+int find_jump_spot(uint64_t H, uint64_t S_max)
+{
+    uint64_t prev_time = microbench(H, 1);
+
+    for(uint64_t S = 2; S < S_max; S++) {
+        uint64_t curr_time = microbench(H, S);
+
+        if(static_cast<double>(curr_time) / static_cast<double>(prev_time) >= JUMP_THRESHOLD) {
+            return S;
+        }
+    }
+
+    return -1;
+}
+
+int detect_cache_line_size(uint64_t H_detected)
+{
+    // cout << "cache line" << endl;
+    int prev_pattern = 0;
+
+    for (uint64_t H = 16; H <= H_detected; H *= 2)
+    {
+        uint64_t L = 8;
+        int S_base = find_jump_spot(H, 2048);
+        int S_mod = find_jump_spot(H + L, 2048);
+
+        // cout << "H=" << H << ", L=" << L << ", S_mod=" << S_mod << ", S_base=" << S_base << endl;
+
+        uint64_t pattern;
+        if (S_mod < S_base)
+        {
+            pattern = 1;
+        }
+        else if (S_mod > S_base)
+        {
+            pattern = 2;
+        }
+        else
+        {
+            continue;
+        }
+
+        if (prev_pattern == 1 && pattern == 2)
+        {
+            return H / 2;
+        }
+
+        prev_pattern = pattern;
+    }
+
+    return -1;
+}
+
+void detect_capacity_associativity_line(int Z, int N, int M)
 {
     jump_history.clear();
     int H = 16;
@@ -156,6 +209,7 @@ void detect_capacity_associativity(int Z, int N, int M)
         return;
     }
 
+    int line_size = detect_cache_line_size(stable_H);
     int capacity_bytes = associativity * stable_H;
 
     std::cout << "=== L1 Data Cache Detection ===\n";
@@ -163,10 +217,11 @@ void detect_capacity_associativity(int Z, int N, int M)
     std::cout << "Stride at stability: " << stable_H << " bytes\n";
     std::cout << "Estimated capacity: " << capacity_bytes << " bytes ("
               << (capacity_bytes / 1024) << " KB)\n";
+    std::cout << "Line size: " << line_size << " bytes\n";
 }
 
 int main()
 {
-    detect_capacity_associativity(10 * 1024 * 1024, 128, 1024 * 1024 * 1024);
+    detect_capacity_associativity_line(10 * 1024 * 1024, 128, 1024 * 1024 * 1024);
     return 0;
 }
