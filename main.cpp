@@ -4,14 +4,12 @@
 #include <algorithm>
 using namespace std;
 
-#define ITERATIONS 50000000
-
-uint64_t microbench(int H, int S)
+uint64_t microbench(int H, int S, const int iterations)
 {
     // Sanity check
     if (H < static_cast<int>(sizeof(void *)))
     {
-        cerr << "Stride H must be >= sizeof(void*)" << endl;
+        cerr << "Stride H must be >= sizeof(void*)\n";
         exit(1);
     }
 
@@ -19,7 +17,7 @@ uint64_t microbench(int H, int S)
     char *raw = static_cast<char *>(aligned_alloc(4096, H * S));
     if (raw == nullptr)
     {
-        cerr << "Failed to allocate memory for H = " << H << ", S = " << S << endl;
+        cerr << "Failed to allocate memory for H = " << H << ", S = " << S << "\n";
         exit(1);
     }
 
@@ -45,7 +43,7 @@ uint64_t microbench(int H, int S)
     auto t1 = chrono::steady_clock::now();
 
     void *ptr = blocks[0];
-    for (int i = 0; i < ITERATIONS; i++)
+    for (int i = 0; i < iterations; i++)
     {
         ptr = *reinterpret_cast<void **>(ptr);
     }
@@ -56,7 +54,7 @@ uint64_t microbench(int H, int S)
     // Prevent optimizations
     if (ptr == nullptr)
     {
-        cerr << "Sanity check failed" << endl;
+        cerr << "Sanity check failed\n";
         exit(1);
     }
 
@@ -108,14 +106,18 @@ bool isMovement(int H)
     return std::abs(curr_jump - expected) <= 2;
 }
 
-int find_jump_spot(uint64_t H, uint64_t S_min, uint64_t S_max)
+int find_jump_spot(uint64_t H, uint64_t S_max, uint64_t expected, int iterations)
 {
-    uint64_t prev_time = microbench(H, S_min);
+    uint64_t prev_time = microbench(H, 1, iterations);
+    cout << expected << "\n";
 
-    for(uint64_t S = S_min + 1; S < S_max; S++) {
-        uint64_t curr_time = microbench(H, S);
+    // for (uint64_t S = max(2UL, expected - 350); S < min(S_max, expected + 350); S++)
+    for (uint64_t S = 2; S < S_max; S++)
+    {
+        uint64_t curr_time = microbench(H, S, iterations);
 
-        if(static_cast<double>(curr_time) / static_cast<double>(prev_time) >= JUMP_THRESHOLD) {
+        if (static_cast<double>(curr_time) / static_cast<double>(prev_time) >= JUMP_THRESHOLD)
+        {
             return S;
         }
     }
@@ -123,46 +125,40 @@ int find_jump_spot(uint64_t H, uint64_t S_min, uint64_t S_max)
     return S_max;
 }
 
-int detect_cache_line_size(uint64_t H_detected)
+int detect_cache_line_size(uint64_t H_detected, uint64_t size, int iterations)
 {
-    // cout << "cache line" << endl;
+    // cout << "cache line" << "\n";
     int prev_pattern = 0;
 
     for (uint64_t H = 16; H <= H_detected; H *= 2)
     {
-        uint64_t L = H / 2;
-        int S_base = find_jump_spot(H, 1, 2048);
+        uint64_t L = 8;
+        int S_base = find_jump_spot(H, 4096, size/H, iterations * 10);
+        int S_mod = find_jump_spot(H + L, 4096, size/H, iterations * 10);
 
-        int t_base = microbench(H + L, 1);
-        int t_s_base = microbench(H + L, S_base);
+        cout << "H=" << H << ", L=" << L << ", S_mod=" << S_mod << ", S_base=" << S_base << "\n";
 
         uint64_t pattern;
-        if (static_cast<double>(t_s_base) / static_cast<double>(t_base) < 1.1) {
-            // We didn't observed jump before S_base => S_base < S_mod
-            cout << "Bailout\n";
+        if (S_mod < S_base - 50)
+        {
+            pattern = 1;
+        }
+        else if (S_mod > S_base + 50)
+        {
             pattern = 2;
-        } else {
-            int S_mod = find_jump_spot(H + L, 1, 2048);
-    
-            cout << "H=" << H << ", L=" << L << ", S_mod=" << S_mod << ", S_base=" << S_base << endl;
-    
-            if (static_cast<double>(S_mod) * 1.1 < static_cast<double>(S_base))
-            {
-                pattern = 1;
-            }
-            else if (static_cast<double>(S_mod) > static_cast<double>(S_base) * 1.1)
-            {
-                pattern = 2;
-            }
-            else
-            {
-                pattern = 3;
-                continue;
-            }
+        }
+        else
+        {
+            pattern = 3;
         }
 
 
         if (prev_pattern == 1 && pattern == 2)
+        {
+            return H;
+        }
+
+        if (prev_pattern == 3 && pattern == 2)
         {
             return H;
         }
@@ -178,7 +174,13 @@ int detect_cache_line_size(uint64_t H_detected)
     return -1;
 }
 
-void detect_capacity_associativity_line(int Z, int N, int M)
+struct Result
+{
+    uint64_t associativity, stable_H, capacity_bytes;
+    int line_size;
+};
+
+Result detect_capacity_associativity_line(int Z, int N, int M, int iterations)
 {
     jump_history.clear();
     int H = 16;
@@ -194,7 +196,7 @@ void detect_capacity_associativity_line(int Z, int N, int M)
 
         for (int S = 1; S <= N; ++S)
         {
-            uint64_t curr_time = microbench(H, S);
+            uint64_t curr_time = microbench(H, S, iterations);
 
             if (isJump(prev_time, curr_time))
             {
@@ -224,22 +226,70 @@ void detect_capacity_associativity_line(int Z, int N, int M)
     if (associativity == -1)
     {
         std::cerr << "Failed to detect L1 cache associativity.\n";
-        return;
+        return {0};
     }
 
-    int line_size = detect_cache_line_size(stable_H);
     int capacity_bytes = associativity * stable_H;
+    int line_size = detect_cache_line_size(stable_H, capacity_bytes, iterations);
 
-    std::cout << "=== L1 Data Cache Detection ===\n";
-    std::cout << "Associativity: " << associativity << "\n";
-    std::cout << "Stride at stability: " << stable_H << " bytes\n";
-    std::cout << "Estimated capacity: " << capacity_bytes << " bytes ("
-              << (capacity_bytes / 1024) << " KB)\n";
-    std::cout << "Line size: " << line_size << " bytes\n";
+    Result res = {0};
+    res.associativity = associativity;
+    res.stable_H = stable_H;
+    res.capacity_bytes = capacity_bytes;
+    res.line_size = line_size;
+
+    return res;
+}
+
+int detect_stable_iterations_count()
+{
+    int res = 1000000;
+    do
+    {
+        uint64_t min, max;
+        min = max = microbench(64, 10, res);
+        for (int i = 1; i < 100; i++)
+        {
+            uint64_t time = microbench(128, 128, res);
+            if (time < min)
+                min = time;
+            if (time > max)
+                max = time;
+        }
+        // Max difference 5%
+        // cout << max << "/" << min << " " << (max * 1.0 / min) << "\n";
+        if (min * 1.05 > max)
+        {
+            return res;
+        }
+        res *= 2;
+    } while (true);
 }
 
 int main()
 {
-    detect_capacity_associativity_line(10 * 1024 * 1024, 128, 1024 * 1024 * 1024);
-    return 0;
+    int iterations = detect_stable_iterations_count();
+    cout << "Stable iterations count: " << iterations << "\n";
+    do {
+        Result res1 = detect_capacity_associativity_line(10 * 1024 * 1024, 128, 1024 * 1024 * 1024, iterations);
+        cout << "=== L1 Data Cache Detection ===\n";
+        cout << "Associativity: " << res1.associativity << "\n";
+        cout << "Stride at stability: " << res1.stable_H << " bytes\n";
+        cout << "Estimated capacity: " << res1.capacity_bytes << " bytes (" << (res1.capacity_bytes / 1024) << " KB)\n";
+        cout << "Line size: " << res1.line_size << " bytes\n";
+
+        Result res2 = detect_capacity_associativity_line(10 * 1024 * 1024, 128, 1024 * 1024 * 1024, iterations);
+        cout << "=== L1 Data Cache Sanity Check ===\n";
+        cout << "Associativity: " << res2.associativity << "\n";
+        cout << "Stride at stability: " << res2.stable_H << " bytes\n";
+        cout << "Estimated capacity: " << res2.capacity_bytes << " bytes (" << (res2.capacity_bytes / 1024) << " KB)\n";
+        cout << "Line size: " << res2.line_size << " bytes\n";
+
+        if (res1.associativity != res2.associativity || res1.capacity_bytes != res2.capacity_bytes || res1.line_size != res2.line_size || res1.stable_H != res2.stable_H) {
+            cout << "!!! Sanity Check Failed !!!\n\n";
+            iterations *= 2;
+        } else {
+            return 0;
+        }
+    } while(true);
 }
