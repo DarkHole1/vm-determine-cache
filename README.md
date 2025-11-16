@@ -1,4 +1,4 @@
 # Build and run
 ```bash
-g++ -O3 main.cpp -o main && ./main
+g++ -O2 main.cpp -o main && ./main
 ```

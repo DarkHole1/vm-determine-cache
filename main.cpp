@@ -4,7 +4,7 @@
 #include <algorithm>
 using namespace std;
 
-#define ITERATIONS 10000000
+#define ITERATIONS 100000000
 
 uint64_t microbench(int H, int S)
 {
