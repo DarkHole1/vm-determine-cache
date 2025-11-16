@@ -4,7 +4,7 @@
 #include <algorithm>
 using namespace std;
 
-#define ITERATIONS 100000000
+#define ITERATIONS 50000000
 
 uint64_t microbench(int H, int S)
 {
@@ -108,11 +108,11 @@ bool isMovement(int H)
     return std::abs(curr_jump - expected) <= 2;
 }
 
-int find_jump_spot(uint64_t H, uint64_t S_max)
+int find_jump_spot(uint64_t H, uint64_t S_min, uint64_t S_max)
 {
-    uint64_t prev_time = microbench(H, 1);
+    uint64_t prev_time = microbench(H, S_min);
 
-    for(uint64_t S = 2; S < S_max; S++) {
+    for(uint64_t S = S_min + 1; S < S_max; S++) {
         uint64_t curr_time = microbench(H, S);
 
         if(static_cast<double>(curr_time) / static_cast<double>(prev_time) >= JUMP_THRESHOLD) {
@@ -120,7 +120,7 @@ int find_jump_spot(uint64_t H, uint64_t S_max)
         }
     }
 
-    return -1;
+    return S_max;
 }
 
 int detect_cache_line_size(uint64_t H_detected)
@@ -130,27 +130,44 @@ int detect_cache_line_size(uint64_t H_detected)
 
     for (uint64_t H = 16; H <= H_detected; H *= 2)
     {
-        uint64_t L = 8;
-        int S_base = find_jump_spot(H, 2048);
-        int S_mod = find_jump_spot(H + L, 2048);
+        uint64_t L = H / 2;
+        int S_base = find_jump_spot(H, 1, 2048);
 
-        // cout << "H=" << H << ", L=" << L << ", S_mod=" << S_mod << ", S_base=" << S_base << endl;
+        int t_base = microbench(H + L, 1);
+        int t_s_base = microbench(H + L, S_base);
 
         uint64_t pattern;
-        if (S_mod < S_base)
-        {
-            pattern = 1;
-        }
-        else if (S_mod > S_base)
-        {
+        if (static_cast<double>(t_s_base) / static_cast<double>(t_base) < 1.1) {
+            // We didn't observed jump before S_base => S_base < S_mod
+            cout << "Bailout\n";
             pattern = 2;
-        }
-        else
-        {
-            continue;
+        } else {
+            int S_mod = find_jump_spot(H + L, 1, 2048);
+    
+            cout << "H=" << H << ", L=" << L << ", S_mod=" << S_mod << ", S_base=" << S_base << endl;
+    
+            if (static_cast<double>(S_mod) * 1.1 < static_cast<double>(S_base))
+            {
+                pattern = 1;
+            }
+            else if (static_cast<double>(S_mod) > static_cast<double>(S_base) * 1.1)
+            {
+                pattern = 2;
+            }
+            else
+            {
+                pattern = 3;
+                continue;
+            }
         }
 
+
         if (prev_pattern == 1 && pattern == 2)
+        {
+            return H;
+        }
+
+        if (prev_pattern == 3 && pattern == 2)
         {
             return H / 2;
         }
@@ -171,6 +188,7 @@ void detect_capacity_associativity_line(int Z, int N, int M)
 
     while (H <= M && H * N <= Z)
     {
+        cout << "H=" << H << "\n";
         uint64_t prev_time = 0;
         int jump_spot = -1;
 
