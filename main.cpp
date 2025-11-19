@@ -83,6 +83,25 @@ uint64_t detect_jump(uint64_t H, int iterations)
     return 0;
 }
 
+uint64_t precise_detect_jump(uint64_t H, int iterations)
+{
+    // cout << "H=" << H << "\n";
+    uint64_t zero = microbench(H, 1, iterations);
+    uint64_t jump = 0;
+    for (uint64_t S = 1; S <= 65; S++)
+    {
+        uint64_t cur = microbench(H, S, iterations);
+        double diff = (cur / (double)(zero));
+        if (diff > 1.3 && jump == 0)
+        {
+            jump = S - 1;
+            return jump;
+        }
+        // cout << "  " << "S=" << S << "  S+=" << SL << "  Tr=" << diff << "\n";
+    }
+    return 0;
+}
+
 pair<uint64_t, uint64_t> detect_associativity_size(int iterations)
 {
     uint64_t prev_jump = 0;
@@ -90,10 +109,10 @@ pair<uint64_t, uint64_t> detect_associativity_size(int iterations)
 
     for (uint64_t H = 16; H <= 1024 * 1024; H *= 2)
     {
-        uint64_t jump = detect_jump(H, iterations);
+        uint64_t jump = precise_detect_jump(H, iterations);
         if (prev_jump == jump && jump != 0)
         {
-            jump = detect_jump(H, iterations * 2);
+            jump = precise_detect_jump(H, iterations * 2);
             // Double recheck
             if (prev_jump == jump && jump != 0)
             {
@@ -190,7 +209,7 @@ tuple<uint64_t, uint64_t, uint64_t> detect(int iterations)
 
 int main()
 {
-    const int iterations = 20000000;
+    const int iterations = 10000000;
 
     // Warmup
     for (int i = 0; i < 10; i++)
