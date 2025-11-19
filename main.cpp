@@ -209,7 +209,7 @@ tuple<uint64_t, uint64_t, uint64_t> detect(int iterations)
 
 int main()
 {
-    const int iterations = 10000000;
+    const int iterations = 20000000;
 
     // Warmup
     for (int i = 0; i < 10; i++)
@@ -219,7 +219,7 @@ int main()
         microbench(H, S, iterations);
     }
 
-    while (true)
+    for(uint64_t tries = 1;; tries++)
     {
         tuple<uint64_t, uint64_t, uint64_t> res[3];
         for (int i = 0; i < 3; i++)
@@ -276,7 +276,8 @@ int main()
         cout << "  \"associativity\": " << assoc << ",\n";
         cout << "  \"size\": " << size << ",\n";
         cout << "  \"size_KB\": " << (size / 1024) << ",\n";
-        cout << "  \"line_size\": " << line_size << "\n";
+        cout << "  \"line_size\": " << line_size << ",\n";
+        cout << "  \"tries\": " << tries << "\n";
         cout << "}\n";
         return 0;
     }
